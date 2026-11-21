@@ -65,6 +65,16 @@ jobs:
           echo "$out"
           echo "$out" | grep -qi "banana"
 
+      - name: Write mode stays in its temp folder (GITHUB_WORKSPACE is set here)
+        run: |
+          out=$(node oc.mjs --write --free-only "Create a file named marker.txt containing x. Only that file.")
+          echo "$out"
+          dir=$(echo "$out" | sed -n 's/.*| dir: \([^|]*\) |.*/\1/p' | tr -d '\r' | sed 's/ *$//')
+          echo "task dir: $dir"
+          test ! -e "$GITHUB_WORKSPACE/marker.txt"
+          ls "$dir"
+          test -e "$dir/marker.txt"
+
       - name: Read-only mode cannot write
         run: |
           d="$RUNNER_TEMP/ro"

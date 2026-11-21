@@ -240,6 +240,10 @@ function runModel(cli, opts, model) {
   args.push(opts.prompt);
 
   const env = { ...process.env };
+  // OpenCode picks its project folder from these before the real cwd (seen with 1.x in GitHub
+  // Actions). Pin them to the chosen folder so read-only/write never lands somewhere else.
+  env.PWD = opts.dir;
+  for (const k of ["GITHUB_WORKSPACE", "INIT_CWD", "OLDPWD"]) delete env[k];
   if (!opts.write) env.OPENCODE_CONFIG_CONTENT = JSON.stringify(readOnlyConfig(cli));
 
   return new Promise((resolve) => {
