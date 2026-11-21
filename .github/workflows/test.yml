@@ -55,6 +55,16 @@ jobs:
           echo "$out"
           echo "$out" | grep -qi "pong"
 
+      - name: Read-only mode can read
+        env:
+          OC_DEBUG: "1"
+        run: |
+          d="$RUNNER_TEMP/ro-read"
+          mkdir -p "$d" && echo "the secret word is banana" > "$d/note.txt"
+          out=$(node oc.mjs --dir "$d" "Read note.txt and reply with only the secret word it contains.")
+          echo "$out"
+          echo "$out" | grep -qi "banana"
+
       - name: Read-only mode cannot write
         run: |
           d="$RUNNER_TEMP/ro"

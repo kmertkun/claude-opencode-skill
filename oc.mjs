@@ -90,10 +90,17 @@ function whichAll(names) {
 // npm installs a .cmd/.ps1/sh shim; resolve it to the real platform binary so arguments
 // are passed without a shell (no quoting problems).
 function resolveNpmShim(shim) {
-  const base = path.join(path.dirname(shim), "node_modules", "opencode-ai");
-  const alt = path.join(path.dirname(shim), "..", "lib", "node_modules", "opencode-ai"); // unix prefix/bin -> prefix/lib
-  for (const root of [base, alt]) {
-    const nm = path.join(root, "node_modules");
+  const dir = path.dirname(shim);
+  // Platform package may be nested under opencode-ai or hoisted next to it.
+  const searchDirs = [
+    path.join(dir, "node_modules", "opencode-ai", "node_modules"),
+    path.join(dir, "node_modules"),
+    path.join(dir, "..", "node_modules", "opencode-ai", "node_modules"), // <prefix>/node_modules/.bin shim
+    path.join(dir, ".."),
+    path.join(dir, "..", "lib", "node_modules", "opencode-ai", "node_modules"), // unix prefix/bin -> prefix/lib
+    path.join(dir, "..", "lib", "node_modules"),
+  ];
+  for (const nm of searchDirs) {
     if (!exists(nm)) continue;
     const plat = { win32: "windows", darwin: "darwin", linux: "linux" }[process.platform];
     const arch = process.arch === "x64" ? "x64" : process.arch;
@@ -245,7 +252,14 @@ function runModel(cli, opts, model) {
       let o; try { o = JSON.parse(line); } catch { return; }
       if (o.sessionID) r.session = o.sessionID;
       if (o.type === "text" && o.part?.text) r.texts.push(o.part.text);
-      else if (o.type === "tool_use" && o.part?.tool) r.tools.push(o.part.tool);
+      else if (o.type === "tool_use" && o.part?.tool) {
+        r.tools.push(o.part.tool);
+        if (process.env.OC_DEBUG) {
+          const s = o.part.state || {};
+          const res = String(s.error || s.output || "").replace(/\s+/g, " ").slice(0, 300);
+          process.stderr.write(`[opencode:debug] ${o.part.tool} ${s.status || ""} ${JSON.stringify(s.input || {})} -> ${res}\n`);
+        }
+      }
       else if (o.type === "error") {
         const e = o.error || {};
         const msg = e.message || e.data?.message || JSON.stringify(o);
