@@ -1,0 +1,65 @@
+name: test
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install OpenCode CLI
+        run: npm install -g opencode-ai
+
+      - name: Install the skill with the installer (from this commit)
+        run: |
+          export OC_SKILL_BASE="file://$PWD"
+          export CLAUDE_CONFIG_DIR="$RUNNER_TEMP/claude"
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            export OC_SKILL_BASE="file:///$(cygpath -m "$PWD")"
+            export CLAUDE_CONFIG_DIR="$(cygpath -w "$RUNNER_TEMP/claude")"
+            OC_WITH_RULE=1 powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1
+          else
+            bash install.sh --with-rule
+          fi
+          ls -la "$RUNNER_TEMP/claude/skills/opencode"
+          grep -q "claude-opencode-skill" "$RUNNER_TEMP/claude/CLAUDE.md"
+
+      - name: Doctor finds the CLI
+        run: node oc.mjs --doctor
+
+      - name: Write mode refuses a non-temp folder
+        run: |
+          set +e
+          node oc.mjs --write --dir "$HOME" "x"
+          code=$?
+          set -e
+          test "$code" = "3"
+
+      - name: Text task on a free model
+        run: |
+          out=$(node oc.mjs --free-only "Reply with only the word: PONG")
+          echo "$out"
+          echo "$out" | grep -qi "pong"
+
+      - name: Read-only mode cannot write
+        run: |
+          d="$RUNNER_TEMP/ro"
+          mkdir -p "$d" && echo hello > "$d/a.txt"
+          node oc.mjs --dir "$d" "Create a file b.txt containing x, then run the shell command: echo hi > c.txt. Then tell me what a.txt contains." || true
+          ls -la "$d"
+          test ! -e "$d/b.txt"
+          test ! -e "$d/c.txt"

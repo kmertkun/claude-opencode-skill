@@ -1,108 +1,100 @@
 # claude-opencode-skill
 
-Claude Code hands simple, self-contained chores to the OpenCode AI on this PC (free models) to save Claude tokens, then verifies the result.
+[![test](https://github.com/kmertkun/claude-opencode-skill/actions/workflows/test.yml/badge.svg)](https://github.com/kmertkun/claude-opencode-skill/actions/workflows/test.yml)
 
-## What it does
+A [Claude Code](https://claude.com/claude-code) skill that hands simple chores (finding files, bulk reading, translation, small scripts) to the [OpenCode](https://opencode.ai) CLI and its **free models**, so Claude spends its tokens on the real work. Claude still checks every result.
 
-This Claude Code skill delegates simple chores — finding files, bulk reading, counting matches, translating or rewording text, and small standalone scripts, snippets or drafts — to OpenCode's free models so the main Claude conversation does not spend tokens on them. The result is always checked before it is used.
+Works on **Windows, macOS and Linux**, with OpenCode **1.x and 2.x**.
 
-## Two modes
+![demo](docs/demo.gif)
 
-**Read-only (default)** — for searching and reading a real folder. Pass the folder with `-Dir`. It runs a per-run agent (`claude-ro`) that may only read/glob/grep/list. Writing, shell, web and other folders are denied. No OpenCode config file is changed.
+<sub>The demo replays a real run on a small sample project. The text and timings are from that run; local paths and session ids are shortened.</sub>
 
-**Write (`-Write`)** — for producing new files. It always runs in a fresh, empty temp folder (it refuses a `-Dir` outside `%TEMP%`) with auto-approve on, so it may create files and run commands there only.
+## Install (one command)
 
-Text-only tasks (translate, reword, draft) need neither option. Attach input files with `-File` (repeatable). Other options: `-TimeoutSec` (default 240).
+**macOS / Linux**
 
-## Model selection (automatic)
+```bash
+curl -fsSL https://raw.githubusercontent.com/kmertkun/claude-opencode-skill/main/install.sh | bash
+```
 
-The wrapper picks the model from the task type and falls back down the chain on error, timeout or empty answer. Don't pass `-Model` normally.
-
-| `-Task` (guessed if omitted) | Guess rule | Chain |
-|---|---|---|
-| `search` | `-Dir` given, no `-Write` | big-pickle → deepseek-v4.1-flash-free → mimo-v2.6-flash-free |
-| `text` | no `-Dir`, no `-Write` | deepseek-v4.1-flash-free → big-pickle → mimo-v2.6-flash-free |
-| `code` | `-Write` | **paid cheap:** claude-haiku-5-5 → gpt-5.4-mini, then **free:** big-pickle → deepseek-v4.1-flash-free |
-| `vision` | an image passed with `-File` | nemotron-3.5-super-vl-free → big-pickle |
-
-User's choice: free first, and cheap paid models only for code. Expensive models (Opus, Fable, GPT Pro, etc.) are never picked automatically. Use `-Model` only when the user names a model. `-FreeOnly` skips paid models.
-
-## Install
-
-Requires the OpenCode desktop app on Windows.
-
-1. Copy this folder to `%USERPROFILE%\.claude\skills\opencode`.
-
-The wrapper is then invoked as:
+**Windows (PowerShell)**
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\.claude\skills\opencode\oc.ps1" <options>
+irm https://raw.githubusercontent.com/kmertkun/claude-opencode-skill/main/install.ps1 | iex
 ```
+
+This installs `SKILL.md` and `oc.mjs` into `~/.claude/skills/opencode` and runs `--doctor` to show which OpenCode CLI it found.
+
+To also let Claude use the skill **on its own in every project**, add the rule to `~/.claude/CLAUDE.md`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/kmertkun/claude-opencode-skill/main/install.sh | bash -s -- --with-rule
+```
+
+```powershell
+$env:OC_WITH_RULE=1; irm https://raw.githubusercontent.com/kmertkun/claude-opencode-skill/main/install.ps1 | iex
+```
+
+Requirements: Node 18+ (Claude Code already has it) and OpenCode installed in any of these ways: desktop app, `curl -fsSL https://opencode.ai/install | bash`, Homebrew, or `npm i -g opencode-ai`.
 
 ## Usage
 
-Read-only search in a real folder:
+In Claude Code, type `/opencode <task>` or just ask for something simple. You can also call the wrapper yourself:
 
-```powershell
-... oc.ps1 -Dir "C:\path\to\project" -Prompt "Find every file that defines or calls sendInvoice. Reply only with relative paths and line numbers, one per line."
+```bash
+node ~/.claude/skills/opencode/oc.mjs --dir . "Where is the login form defined? Reply only with file:line."
+node ~/.claude/skills/opencode/oc.mjs "Translate to English: ..."
+node ~/.claude/skills/opencode/oc.mjs --write "Create csv_to_json.py that ..."
+node ~/.claude/skills/opencode/oc.mjs --doctor
 ```
 
-Write mode (only in a temp folder):
+### Two modes
 
-```powershell
-... oc.ps1 -Write -Prompt "Create csv_to_json.py that reads input.csv and writes output.json. Only create that one file."
-```
+| Mode | When | What OpenCode can do |
+|---|---|---|
+| **read-only** (default) | `--dir <real folder>` | Only read, glob, grep and list. Writing, shell, web and MCP actions are denied by a per-run agent. Your OpenCode config is not changed. |
+| **write** | `--write` | Creates files and runs commands, but **only in a fresh temp folder**. A `--dir` outside temp is refused. |
+
+### Automatic model selection
+
+| Task (guessed) | Chain |
+|---|---|
+| `search`: `--dir` given | big-pickle → deepseek-v4.1-flash-free → mimo-v2.6-flash-free |
+| `text`: plain prompt | deepseek-v4.1-flash-free → big-pickle → mimo-v2.6-flash-free |
+| `code`: `--write` | claude-haiku-5-5 → gpt-5.4-mini (cheap, paid) → big-pickle → deepseek-v4.1-flash-free |
+| `vision`: image via `--file` | nemotron-3.5-super-vl-free → big-pickle |
+
+Free models come first. Expensive models are never chosen automatically. With no OpenCode credits, the wrapper remembers it and skips paid models for 24 hours. Use `--free-only` to never try them.
+
+### Finding the OpenCode CLI
+
+`oc.mjs` looks for the CLI in this order and uses the newest working one:
+
+- **Windows:** the OpenCode desktop app (`%LOCALAPPDATA%\Programs\*opencode*\resources\opencode-cli.exe`), `~/.opencode/bin`, and npm global installs (resolved to the real binary).
+- **macOS:** `/Applications/*OpenCode*.app`, `~/.opencode/bin`, `/opt/homebrew/bin`, `/usr/local/bin`.
+- **Linux:** `~/.opencode/bin`, `~/.local/bin`, `/opt/OpenCode`, `/usr/local/bin`, `/usr/bin`.
+- **All platforms:** anything named `opencode` / `opencode-cli` on `PATH`.
+
+Set `OPENCODE_BIN=/path/to/opencode` to force a specific binary.
 
 ## Türkçe
 
-### Ne yapar
+Claude Code'un basit işleri (dosya bulma, toplu okuma, çeviri, küçük betikler) OpenCode'un **ücretsiz modellerine** vermesini sağlayan bir skill. Böylece Claude, token'larını asıl işe harcar ve her sonucu yine kendisi kontrol eder. **Windows, macOS ve Linux**'ta, OpenCode **1.x ve 2.x** ile çalışır.
 
-Bu Claude Code skill'i, basit ve bağımsız işleri — dosya bulma, toplu okuma, eşleşme sayma, metin çevirme veya yeniden yazma, küçük bağımsız betik/parça/taslaklar — bu PC'deki ücretsiz OpenCode modellerine verir; böylece ana Claude sohbeti bu işler için token harcamaz. Sonuç her zaman kullanılmadan önce kontrol edilir.
+**Kurulum (tek komut):**
+- macOS / Linux: `curl -fsSL https://raw.githubusercontent.com/kmertkun/claude-opencode-skill/main/install.sh | bash`
+- Windows: `irm https://raw.githubusercontent.com/kmertkun/claude-opencode-skill/main/install.ps1 | iex`
 
-### İki mod
+Claude'un skill'i her projede kendiliğinden kullanması için kuralı da ekleyin: bash'te sona `-s -- --with-rule` ekleyin, PowerShell'de komuttan önce `$env:OC_WITH_RULE=1;` yazın.
 
-**Salt okunur (varsayılan)** — gerçek bir klasörde arama ve okuma için. Klasör `-Dir` ile verilir. Çalıştırma başına, yalnızca okuma/glob/grep/listeye izin veren bir ajan (`claude-ro`) kullanılır. Yazma, kabuk, web ve diğer klasörler reddedilir. Hiçbir OpenCode yapılandırma dosyası değiştirilmez.
+**Modlar:**
+- **Salt okunur (varsayılan):** Gerçek klasörlerde yalnızca okuma ve arama yapar.
+- **Yazma (`--write`):** Yalnızca boş, geçici bir klasörde çalışır.
 
-**Yazma (`-Write`)** — yeni dosya üretmek için. Her zaman yeni ve boş bir geçici klasörde çalışır (`%TEMP%` dışındaki bir `-Dir` reddedilir); otomatik onay açıktır, dolayısıyla dosya oluşturma ve komut çalıştırma yalnızca orada yapılabilir.
+**Model seçimi:** Önce ücretsiz modeller denenir. Kod işlerinde ucuz ücretli modeller de denenir. Pahalı modeller hiçbir zaman otomatik seçilmez. Bakiye yoksa ücretli modeller 24 saat boyunca atlanır.
 
-Yalnızca metin işleri (çevirme, yeniden yazma, taslak yazma) bu seçeneklerden hiçbirini gerektirmez. Girdi dosyaları `-File` ile eklenir (tekrarlanabilir). Diğer seçenek: `-TimeoutSec` (varsayılan 240).
-
-### Otomatik model seçimi
-
-Wrapper modeli görev türüne göre seçer; hata, zaman aşımı veya boş yanıtta zincir boyunca bir sonraki modele geçer. Normalde `-Model` verilmez.
-
-| `-Task` (verilmezse tahmin edilir) | Tahmin kuralı | Zincir |
-|---|---|---|
-| `search` | `-Dir` verilmiş, `-Write` yok | big-pickle → deepseek-v4.1-flash-free → mimo-v2.6-flash-free |
-| `text` | `-Dir` yok, `-Write` yok | deepseek-v4.1-flash-free → big-pickle → mimo-v2.6-flash-free |
-| `code` | `-Write` | **ücretli ucuz:** claude-haiku-5-5 → gpt-5.4-mini, ardından **ücretsiz:** big-pickle → deepseek-v4.1-flash-free |
-| `vision` | `-File` ile bir görsel verilmiş | nemotron-3.5-super-vl-free → big-pickle |
-
-Kullanıcı tercihi: önce ücretsiz modeller; yalnızca kod için ucuz ücretli modeller. Pahalı modeller (Opus, Fable, GPT Pro vb.) otomatik olarak hiç seçilmez. `-Model` yalnızca kullanıcı bir model adı verdiğinde kullanılır. `-FreeOnly` ücretli modelleri atlar.
-
-### Kurulum
-
-Windows'ta OpenCode masaüstü uygulaması gerekir.
-
-1. Bu klasörü `%USERPROFILE%\.claude\skills\opencode` konumuna kopyalayın.
-
-### Kullanım
-
-Gerçek bir klasörde salt okunur arama:
-
-```powershell
-... oc.ps1 -Dir "C:\path\to\project" -Prompt "Find every file that defines or calls sendInvoice. Reply only with relative paths and line numbers, one per line."
-```
-
-Yazma modu (yalnızca geçici klasörde):
-
-```powershell
-... oc.ps1 -Write -Prompt "Create csv_to_json.py that reads input.csv and writes output.json. Only create that one file."
-```
-
-### Lisans
-
-MIT
+**Sorun giderme:** `node ~/.claude/skills/opencode/oc.mjs --doctor` komutu hangi OpenCode CLI'ın bulunduğunu gösterir.
 
 ## License
 
